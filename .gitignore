@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Model files (large binary files)
+*.pt
+*.pth
+*.weights
+
+# Video files (large binary files)
+*.mp4
+*.avi
+*.mov
+
+# Output directories
+detected_frames_opticalflow/
+detected_frames_yolo/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,113 +1,173 @@
-# Vehicle Speed Detection using Optical Flow and YOLO
+# Vehicle Speed Detection using YOLO and Optical Flow
 
-This project implements vehicle speed detection using two different approaches: **Optical Flow** methods and **YOLO object detection**. It processes highway traffic videos to detect, track, and estimate the speed of vehicles.
+Advanced computer vision system for detecting and measuring vehicle speeds on highways using YOLO object detection and optical flow algorithms.
 
-## Project Overview
+![Example Output](example.jpg)
 
-The project uses computer vision techniques to:
-- Detect vehicles in video footage
-- Track their movement across frames
-- Calculate their speed based on pixel displacement and distance assumptions
-- Count vehicles moving in different directions
+## Overview
 
-## Files Description
-
-### Main Scripts
-
-1. **lukas_kanade.py**
-   - Implements vehicle speed detection using the **Lucas-Kanade optical flow** method
-   - Tracks sparse feature points on vehicles to estimate motion
-   - Faster but less dense optical flow computation
-   - **Output**: `output_lk_optical.mp4` video file
-
-2. **gunnar_farneback.py**
-   - Implements vehicle speed detection using the **Gunnar-Farneback optical flow** method
-   - Computes dense optical flow across entire frames
-   - More accurate for complex scenes but computationally intensive
-   - **Outputs**: 
-     - `detected_frames_opticalflow/` folder with annotated frames and speed data
-     - `output_optical_flow.avi` combined output video
-
-3. **yolo.py**
-   - Uses **YOLO 26** (latest version) for object detection and vehicle tracking
-   - Draws two reference lines (red and blue) representing a 10-meter distance assumption
-   - Counts vehicles crossing the lines in both directions (up and down)
-   - Demonstrates distance/speed calculation concept using YOLO detections
-   - Depends on `tracker.py` for object tracking
-   - **Outputs**:
-     - `detected_frames_yolo/` folder with annotated frames showing counters and reference lines
-     - `output_yolo.avi` combined output video
-
-4. **tracker.py**
-   - Helper module containing the `Tracker` class for object tracking
-   - Used by `yolo.py` to track detected vehicles across frames
-   - Assigns unique IDs to vehicles and maintains their positions
-   - **Cannot be executed standalone** - only imported by other scripts
+This system processes highway video footage to:
+- **Detect and track vehicles** in real-time
+- **Calculate accurate speeds** using perspective-corrected measurements
+- **Count vehicles** by direction (up/down)
+- **Generate comprehensive logs** with vehicle metadata
+- **Export annotated videos** with speed overlays
 
 
-### Output Directories
+## Features
 
-- **detected_frames_opticalflow/** - Individual frames from Gunnar-Farneback method
-- **detected_frames_yolo/** - Individual frames from YOLO detection
-- **__pycache__/** - Python bytecode cache directory
+### YOLO-Based Detection (`yolo.py`)
+The primary implementation using state-of-the-art deep learning:
 
-## Prerequisites
+- **YOLO26 Medium Segmentation Model** - Fast and accurate vehicle detection
+- **Kalman Filtering** - Smooth trajectory tracking and velocity estimation
+- **Mahalanobis Outlier Rejection** - Filters unreliable detections for stable speeds
+- **EMA Smoothing** - Exponential moving average for consistent speed display
+- **Perspective Transform** - Bird's-eye view conversion for accurate distance measurement
+- **ByteTrack Integration** - Robust multi-object tracking across frames
+- **Real-time Processing** - GPU-accelerated inference with FP16 support
+- **Comprehensive Logging** - CSV export with vehicle ID, type, speed statistics, and trajectory data
 
-### Required Input
-- **highway.mp4** - Input video file (must be in the project directory)
+### Optical Flow Methods
 
-### Dependencies
-Install required packages:
-```bash
-pip install ultralytics opencv-python pandas numpy matplotlib scipy
+#### Dense Optical Flow (`gunnar_farneback.py`)
+- Gunnar-Farneback algorithm for pixel-level motion analysis
+- Background subtraction for vehicle segmentation
+- Morphological operations for noise reduction
+- Simple perspective correction based on Y-position
+
+#### Sparse Optical Flow (`lukas_kanade.py`)
+- Lucas-Kanade algorithm with Shi-Tomasi corner detection
+- Feature point tracking across frames
+- Motion vector visualization
+- Periodic re-detection of tracking points
+
+## System Architecture
+
+### Calibration
+- **Detection Area**: 105 meters (verified from highway markers)
+- **Resolution**: 1920×1080 processing (preserves aspect ratio)
+- **Bird's-Eye Transform**: 41m × 105m calibrated rectangle
+- **Reference Lines**: Line 1 at 0m (green), Line 2 at 105m (red) for visualization
+
+### Speed Calculation
+1. Vehicle detected by YOLO with bounding box
+2. Bottom-center footpoint extracted (ground contact)
+3. Transformed to bird's-eye view coordinates
+4. Kalman filter tracks position and estimates velocity
+5. Speed calculated from velocity magnitude: `speed_kmh = √(vx² + vy²) × 3.6`
+6. EMA smoothing applied for stable display
+7. Validated against 30-160 km/h range
+
+### Tracking Pipeline
+```
+Frame Input → YOLO Detection → ByteTrack ID Assignment → Footpoint Extraction
+     ↓
+Perspective Transform → Kalman Predict → Outlier Check → Kalman Update
+     ↓
+Speed Calculation → EMA Smoothing → Trajectory Analysis → Display & Logging
 ```
 
-## How to Run
+### Vehicle Counting Logic
+```
+For each tracked vehicle:
+  - Initialize: Record starting position and velocity
+  - Update: Track min/max Y-position, compute velocity average
+  - Count when:
+    • Tracked for 10+ frames (>0.4 seconds)
+    • Traveled 35+ meters
+    • Average velocity clearly positive (down) or negative (up)
+```
 
-### 1. Lucas-Kanade Optical Flow Method
+## Installation
+
+### Requirements
 ```bash
+pip install opencv-python numpy torch ultralytics
+```
+### Models
+The system uses pre-trained models (auto-downloaded on first run):
+- `yolo26m-seg.pt` - YOLO26 Medium with segmentation (currently active)
+- Alternative models available: YOLOv8, YOLOv9, YOLO11
+
+## Usage
+
+### Basic Execution
+```bash
+# YOLO-based detection (recommended)
+python yolo.py
+
+# Gunnar-Farneback optical flow
+python gunnar_farneback.py
+
+# Lucas-Kanade optical flow
 python lukas_kanade.py
 ```
-**Output**: `output_lk_optical.mp4`
 
-### 2. Gunnar-Farneback Optical Flow Method
-```bash
-python gunnar_farneback.py
+### Output Files
+Each run generates:
+- **`output_yolo.avi`** - Annotated video with speed overlays
+- **`vehicle_log_YYYYMMDD_HHMMSS.csv`** - Detailed vehicle data
+- **`detected_frames_yolo/`** - Individual frame captures
+
+### CSV Log Format
+| Column | Description |
+|--------|-------------|
+| Vehicle_ID | Unique tracking identifier |
+| Type | Vehicle class (car, truck, bus, motorcycle) |
+| First_Frame | Initial detection frame |
+| Last_Frame | Final detection frame |
+| Duration_Sec | Time vehicle was tracked |
+| Avg_Speed_kmh | Average speed during tracking |
+| Min_Speed_kmh | Minimum recorded speed |
+| Max_Speed_kmh | Maximum recorded speed |
+| Direction | Movement direction (up/down) |
+| Crossed_Lines | Whether vehicle met counting criteria (35m+ travel) |
+| Total_Detections | Number of frames vehicle was detected |
+
+## Configuration
+
+### Adjusting Calibration (`config.py`)
+Modify perspective transform points to match your video:
+```python
+PERSPECTIVE_SRC_POINTS = [
+    [616, 300],   # Top-left
+    [1240, 318],  # Top-right
+    [9, 531],     # Bottom-left
+    [1833, 531]   # Bottom-right
+]
+
+PERSPECTIVE_DST_POINTS = [
+    [0, 0],      # Origin
+    [41, 0],     # Width (meters)
+    [0, 105],    # Length (meters)
+    [41, 105]    # Corner
+]
 ```
-**Outputs**: 
-- Folder: `detected_frames_opticalflow/`
-- Video: `output_optical_flow.avi`
 
-### 3. YOLO Detection Method
-```bash
-python yolo.py
+### Performance Tuning (`yolo.py`)
+```python
+EMA_ALPHA = 0.35              # Speed smoothing (0.2-0.5)
+MIN_FRAMES_FOR_SPEED = 8      # Frames before showing speed
+conf = 0.25                   # YOLO confidence threshold
 ```
-**Outputs**:
-- Folder: `detected_frames_yolo/`
-- Video: `output_yolo.avi`
 
-## Technical Details
+### Kalman Filter Configuration
+- **State Vector**: [x, y, vx, vy] - position and velocity
+- **Process Noise**: Adaptive based on vehicle acceleration
+- **Measurement Noise**: 1.0 meter standard deviation
+- **Update Rate**: Every frame (25 fps for typical highway footage)
 
-### Distance Assumption
-- The scripts assume a **10-meter distance** between two reference lines drawn on the video
-- Speed calculation uses: **Speed = Distance / Time**
-- Pixel-to-meter conversion is based on this assumption
-
-### YOLO Vehicle Counting
-- Red and blue lines serve as virtual gates
-- Vehicles crossing these lines are counted separately for upward and downward movement
-- Counter is displayed on the video frames
-
-### Model Update
-- Project upgraded from YOLOv8 to **YOLO 26** (latest version as of March 2026)
-- Improved accuracy and performance compared to previous versions
-
-## Notes
-
-- Ensure all scripts and `highway.mp4` are in the same directory
-- `tracker.py` must be present for `yolo.py` to function
-- YOLO models will auto-download on first run if not present
-- Processing time varies based on video length and chosen method
-- Optical flow methods are more CPU-intensive than YOLO detection
-
-
+## Project Structure
+```
+vehicle-speed-detection-optical-flow-yolo/
+├── yolo.py                    # Main YOLO implementation
+├── gunnar_farneback.py        # Dense optical flow
+├── lukas_kanade.py            # Sparse optical flow
+├── perspective_transform.py   # Bird's-eye view transformer
+├── config.py                  # Calibration parameters
+├── highway.mp4                # Input video
+├── example.jpg                # Sample output
+├── yolo26m-seg.pt            # YOLO model weights
+└── README.md                  # Documentation
+```
